@@ -1,0 +1,1 @@
+{"name": "transient failure recovers", "total_samples": 4000000, "n_jobs": 4, "fail_mode": "transient", "inject_count": 2, "fail_attempts": 1, "max_retries": 2}

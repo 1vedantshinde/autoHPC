@@ -1,0 +1,4 @@
+digraph W { rankdir=LR; node [shape=box, style=rounded];
+ Configure -> Validate -> "Create experiment + jobs" -> Dispatch -> Execute -> "Record attempt";
+ "Record attempt" -> Retry [label="retryable failure"]; Retry -> Dispatch;
+ "Record attempt" -> "Validate result" [label="success"]; "Validate result" -> "Store + benchmark" -> "Dashboard / CSV export"; }

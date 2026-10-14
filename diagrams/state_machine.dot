@@ -1,0 +1,3 @@
+digraph S { rankdir=LR; node [shape=ellipse];
+ QUEUED -> RUNNING; RUNNING -> COMPLETED; RUNNING -> RETRYING [label="retryable error"]; RUNNING -> FAILED [label="fatal / invalid"];
+ RETRYING -> RUNNING [label="retries left"]; RETRYING -> FAILED [label="limit hit"]; }

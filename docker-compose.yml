@@ -1,0 +1,20 @@
+# Fedora: sudo dnf install podman podman-compose ; then: podman-compose up --build
+# (:Z relabels the bind mounts for SELinux)
+x-common: &common
+  build: .
+  volumes:
+    - ./data:/app/data:Z
+    - ./logs:/app/logs:Z
+  environment:
+    AUTOHPC_WEBHOOK_URL: ${AUTOHPC_WEBHOOK_URL:-}
+services:
+  dashboard:
+    <<: *common
+    ports: ["8501:8501"]
+  api:
+    <<: *common
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+  watcher:
+    <<: *common
+    command: python watcher.py --interval 3

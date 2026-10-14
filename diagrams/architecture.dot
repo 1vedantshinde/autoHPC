@@ -1,0 +1,9 @@
+digraph G { rankdir=TB; node [shape=box, style=rounded];
+ User -> "Streamlit Dashboard (app.py)" -> "Orchestration Engine (engine/)";
+ "Orchestration Engine (engine/)" -> "Scheduler: validate + split jobs";
+ "Orchestration Engine (engine/)" -> "Executor: sequential | ProcessPool";
+ "Executor: sequential | ProcessPool" -> "NumPy Monte Carlo workload";
+ "Executor: sequential | ProcessPool" -> "Retry policy";
+ "NumPy Monte Carlo workload" -> "Validator";
+ "Orchestration Engine (engine/)" -> "SQLite (storage/)";
+ "SQLite (storage/)" -> "Report + Benchmark (reporting/)" -> "Streamlit Dashboard (app.py)"; }
