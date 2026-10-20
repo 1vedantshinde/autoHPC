@@ -10,3 +10,5 @@ data/inbox/
 data/processed/
 data/rejected/
 data/*.db-*
+
+.env
