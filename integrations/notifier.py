@@ -1,14 +1,15 @@
-
 """Outbound notifications.
 
 Channels are enabled by environment variables:
   AUTOHPC_WEBHOOK_URL                      -> JSON POST
-  AUTOHPC_SMTP_HOST/PORT/USER/PASS/FROM/TO -> Email
+  AUTOHPC_SMTP_HOST/PORT/USER/PASS/FROM/TO -> Email (HTML + Plain text)
+  UIPATH_WEBHOOK_URL or UIPATH_ORCHESTRATOR_URL -> UiPath RPA Orchestrator Queue / Webhook
 
 Every notification attempt is appended to logs/notifications.log.
 notify() never raises, even if a notification channel or logging fails.
 """
 
+import html
 import json
 import logging
 import os
@@ -49,6 +50,65 @@ def format_message(summary):
     )
 
 
+def format_html_message(message, summary=None, subject="AutoHPC Notification"):
+    """Format an attractive HTML notification card for email clients."""
+    status = summary.get("status", "NOTICE") if summary else "ALERT"
+    status_color = "#107c41" if status == "COMPLETED" else "#d83b01" if status in ("FAILED", "ERROR", "REJECTED") else "#0078d4"
+
+    exp_id = summary.get("experiment_id", "N/A") if summary else "N/A"
+    wall = f"{summary.get('wall_time', 0):.3f}s" if summary and summary.get("wall_time") is not None else "N/A"
+    pi = f"{summary.get('pi_estimate', 0):.6f}" if summary and summary.get("pi_estimate") is not None else "N/A"
+    abs_err = f"{summary.get('abs_error', 0):.2e}" if summary and summary.get("abs_error") is not None else "N/A"
+    completed = summary.get("completed", 0) if summary else "N/A"
+    failed = summary.get("failed", 0) if summary else "N/A"
+    retries = summary.get("retries", 0) if summary else "N/A"
+
+    escaped_msg = html.escape(message).replace("\n", "<br>")
+
+    html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #24292e; }}
+    .card {{ max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: 1px solid #e1e4e8; }}
+    .header {{ background-color: {status_color}; color: #ffffff; padding: 20px; font-size: 20px; font-weight: 600; text-align: center; }}
+    .content {{ padding: 24px; }}
+    .badge {{ display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 12px; background: {status_color}; color: #ffffff; }}
+    .metrics-table {{ width: 100%; border-collapse: collapse; margin-top: 18px; margin-bottom: 18px; }}
+    .metrics-table td {{ padding: 8px 12px; border-bottom: 1px solid #eaecef; font-size: 14px; }}
+    .metrics-table td.label {{ color: #586069; font-weight: 500; width: 40%; }}
+    .metrics-table td.value {{ font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 600; }}
+    .footer {{ background: #fafbfc; border-top: 1px solid #eaecef; padding: 12px 24px; font-size: 12px; color: #6a737d; text-align: center; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      AutoHPC Scientific Workflow Update
+    </div>
+    <div class="content">
+      <p style="font-size: 15px; line-height: 1.5; margin-bottom: 18px;">
+        {escaped_msg}
+      </p>
+      <table class="metrics-table">
+        <tr><td class="label">Experiment ID</td><td class="value">{exp_id}</td></tr>
+        <tr><td class="label">Status</td><td class="value"><span class="badge">{status}</span></td></tr>
+        <tr><td class="label">Execution Wall Time</td><td class="value">{wall}</td></tr>
+        <tr><td class="label">Monte Carlo &pi; Estimate</td><td class="value">{pi}</td></tr>
+        <tr><td class="label">Absolute Error</td><td class="value">{abs_err}</td></tr>
+        <tr><td class="label">Jobs Summary</td><td class="value">{completed} OK, {failed} Failed ({retries} Retries)</td></tr>
+      </table>
+    </div>
+    <div class="footer">
+      AutoHPC Process Automation Bot &bull; System Notification
+    </div>
+  </div>
+</body>
+</html>"""
+    return html_content
+
+
 def send_webhook(url, message, summary=None, timeout=10):
     """Send a JSON payload to a configured webhook URL."""
     payload = {
@@ -68,8 +128,8 @@ def send_webhook(url, message, summary=None, timeout=10):
         return response.status
 
 
-def send_email(subject, message):
-    """Send an email using the configured SMTP server."""
+def send_email(subject, message, html_body=None):
+    """Send an email using the configured SMTP server with both plain text and optional HTML."""
     host = os.environ.get("AUTOHPC_SMTP_HOST")
     recipient = os.environ.get("AUTOHPC_SMTP_TO")
 
@@ -84,15 +144,16 @@ def send_email(subject, message):
     sender = os.environ.get("AUTOHPC_SMTP_FROM") or username
 
     if not sender:
-        raise ValueError(
-            "Set AUTOHPC_SMTP_FROM or AUTOHPC_SMTP_USER."
-        )
+        raise ValueError("Set AUTOHPC_SMTP_FROM or AUTOHPC_SMTP_USER.")
 
     email = EmailMessage()
     email["Subject"] = subject
     email["From"] = sender
     email["To"] = recipient
     email.set_content(message)
+
+    if html_body:
+        email.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP(host, port, timeout=15) as smtp:
         smtp.ehlo()
@@ -150,13 +211,24 @@ def notify_message(
 
         if smtp_host and smtp_recipient:
             try:
-                send_email(subject, message)
+                html_body = format_html_message(message, summary=summary, subject=subject)
+                send_email(subject, message, html_body=html_body)
                 results["email"] = "ok"
             except Exception as error:
                 results["email"] = (
                     f"error: {type(error).__name__}: {error}"
                 )
                 log.warning("Email notification failed: %s", error)
+
+        # UiPath RPA Orchestrator Queue / Webhook channel
+        try:
+            from integrations.uipath_client import is_uipath_configured, push_to_uipath
+            if is_uipath_configured():
+                res = push_to_uipath(summary or {"message": message, "subject": subject})
+                results["uipath"] = f"{res.get('status')} ({res.get('channel', 'uipath')})"
+        except Exception as error:
+            results["uipath"] = f"error: {type(error).__name__}: {error}"
+            log.warning("UiPath dispatch failed: %s", error)
 
         if not results:
             results["notification"] = (

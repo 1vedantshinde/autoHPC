@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from engine.executor import execute_experiment, submit_experiment
 from engine.scheduler import ConfigError
+from integrations.excel_logger import record_experiment_run
 from integrations.logging_setup import setup_logging
 from integrations.notifier import notify, notify_message
 from reporting.report_generator import experiment_csv
@@ -37,7 +38,9 @@ def get_db():
 
 def _execute(db, exp_id, cfg, jobs):
     try:
-        notify(execute_experiment(db, exp_id, cfg, jobs))
+        summary = execute_experiment(db, exp_id, cfg, jobs)
+        record_experiment_run(summary)
+        notify(summary)
     except Exception as e:
         log.exception("Experiment %s crashed", exp_id)
         db.finish_experiment(exp_id, "ERROR", 0.0, None, None)

@@ -3,6 +3,7 @@ import argparse
 import os
 
 from engine.executor import run_experiment
+from integrations.excel_logger import record_experiment_run
 from reporting.report_generator import run_benchmark, system_info
 from integrations.logging_setup import setup_logging
 from integrations.notifier import notify
@@ -34,6 +35,7 @@ def main():
                   f"speedup={r['speedup']:.2f} eff={r['efficiency']:.2f} err={r['abs_error']:.2e}")
     else:
         out = run_experiment(db, cfg)
+        record_experiment_run(out)
         print(out)
         print('Notifications:', notify(out))
 

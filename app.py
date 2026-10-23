@@ -6,6 +6,7 @@ import streamlit as st
 
 from engine.executor import run_experiment
 from engine.scheduler import ConfigError
+from integrations.excel_logger import get_excel_path, record_experiment_run
 from integrations.logging_setup import log_dir, setup_logging
 from integrations.notifier import notify
 from pathlib import Path
@@ -64,15 +65,30 @@ def show_experiment(exp_id, prefix):
 tab_run, tab_bench, tab_hist, tab_mon = st.tabs(["Run", "Benchmark", "History", "Live monitor"])
 
 with tab_run:
-    if st.button("Run experiment", type="primary", key="run"):
+    col_run, col_fail = st.columns([1, 1])
+    with col_run:
+        run_clicked = st.button("Run experiment", type="primary", key="run")
+    with col_fail:
+        fail_clicked = st.button("Run failing experiment (force fail)", type="secondary", key="run_fail",
+                                 help="Forces all jobs to persistently fail so you can verify email and ledger handling for failed experiments.")
+
+    if run_clicked or fail_clicked:
         bar = st.progress(0.0, text="Running...")
         try:
-            out = run_experiment(db, current_cfg(), st.session_state.key,
+            cfg = current_cfg()
+            if fail_clicked:
+                cfg["fail_mode"] = "persistent"
+                cfg["inject_count"] = cfg["n_jobs"]
+            out = run_experiment(db, cfg, st.session_state.key,
                                  progress=lambda d, t: bar.progress(d / t, text=f"{d}/{t} jobs finished"))
             st.session_state.last_id = out["experiment_id"]
             st.session_state.key = uuid.uuid4().hex  # new submission token
+            record_experiment_run(out)
             notify(out)
-            st.success(f"Experiment {out['experiment_id']} finished: {out['status']}")
+            if out["status"] == "FAILED":
+                st.error(f"Experiment {out['experiment_id']} finished: {out['status']} (Failure email sent)")
+            else:
+                st.success(f"Experiment {out['experiment_id']} finished: {out['status']}")
         except ConfigError as e:
             st.error(f"Invalid configuration: {e}")
         except DuplicateSubmission as e:
@@ -112,6 +128,16 @@ with tab_hist:
         show_experiment(pick, "hist")
     else:
         st.info("No experiments recorded yet.")
+
+    excel_file = get_excel_path()
+    if excel_file.exists():
+        st.download_button(
+            "Download Excel Master Ledger (.xlsx)",
+            data=excel_file.read_bytes(),
+            file_name="autohpc_master_ledger.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_master_excel",
+        )
 
 with tab_mon:
     st.caption("Auto-refreshes every 5 s. Shows activity from the dashboard, the REST API and the inbox watcher.")

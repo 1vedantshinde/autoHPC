@@ -39,3 +39,46 @@ def test_unreachable_webhook_never_raises(monkeypatch, tmp_path):
     res = notify_message("hello")
     assert res["webhook"].startswith("error")
     assert "hello" in (tmp_path / "logs" / "notifications.log").read_text()
+
+
+def test_email_html_formatting_and_dispatch(monkeypatch):
+    sent_emails = []
+
+    class MockSMTP:
+        def __init__(self, host, port, timeout=15):
+            self.host = host
+            self.port = port
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def ehlo(self):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, user, password):
+            pass
+
+        def send_message(self, msg):
+            sent_emails.append(msg)
+
+    monkeypatch.setattr("smtplib.SMTP", MockSMTP)
+    monkeypatch.setenv("AUTOHPC_SMTP_HOST", "smtp.test.com")
+    monkeypatch.setenv("AUTOHPC_SMTP_TO", "researcher@example.com")
+    monkeypatch.setenv("AUTOHPC_SMTP_USER", "bot@example.com")
+
+    res = notify(SUMMARY)
+    assert res["email"] == "ok"
+    assert len(sent_emails) == 1
+    msg = sent_emails[0]
+    assert msg["To"] == "researcher@example.com"
+    assert "AutoHPC experiment 7 COMPLETED" in msg["Subject"]
+    # Check that HTML alternative was added
+    payloads = msg.get_payload()
+    assert isinstance(payloads, list)
+    assert any("text/html" in str(p.get_content_type()) for p in payloads)
